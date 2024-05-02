@@ -1,5 +1,6 @@
 import cv2 as cv
 import numpy as np
+import open3d as o3d
 from segment_anything import sam_model_registry, SamPredictor
 
 
@@ -46,6 +47,8 @@ def segmentation_visualizer(dst: np.array, masks: np.array, blend: float = 0.5) 
     -------
     result : obj : 'np.array'
         final image with a mask
+    masks : obj : 'np.array'
+        grayscale mask (0 ~ 255)
     """
     cyan = np.full_like(dst,(255,255,0))
     img_cyan = cv.addWeighted(dst, blend, cyan, 1-blend, 0)
@@ -58,4 +61,83 @@ def segmentation_visualizer(dst: np.array, masks: np.array, blend: float = 0.5) 
     cv.waitKey(0)
     cv.destroyAllWindows()   
 
-    return result
+    return result, masks
+
+
+def gen_pointcloud(points, segment_img):
+    """ 
+    Segment foreground from the raw point cloud data
+    
+    Parameters
+    ----------
+    points : obj : 'np.array'
+        raw point cloud data in numpy array
+    segment_img : obj : `np.array` 
+        boolean mask geneerated SAM
+        
+    Returns
+    -------
+    filtered_pcd : obj : 'np.array'
+        masked and segmented point cloud
+    """
+
+    # Get point cloud data
+    v = points.get_vertices()
+    verts = np.asanyarray(v).view(np.float32).reshape(-1, 3)
+
+    # Apply the mask
+    mask_indices = np.where(segment_img.flatten() == 255)[0]
+    verts = verts[mask_indices]
+
+    # Save the filtered point cloud
+    filtered_pcd = o3d.geometry.PointCloud()
+    filtered_pcd.points = o3d.utility.Vector3dVector(verts)
+    points = np.asarray(filtered_pcd.points)
+    filtered_points = points    
+
+    # Define the threshold distance (example: 1.0 units)        
+    min_threshold_distance = 0.005
+    max_threshold_distance = 0.45      
+    distances = np.sqrt(np.sum(np.square(filtered_points), axis=1))
+    filtered_points = filtered_points[(distances > min_threshold_distance) & (distances < max_threshold_distance)]
+
+    # Create and display the filtered point cloud
+    filtered_pcd = o3d.geometry.PointCloud()
+    filtered_pcd.points = o3d.utility.Vector3dVector(filtered_points)
+
+    _, ind = filtered_pcd.remove_statistical_outlier(nb_neighbors=100, std_ratio=0.25)
+    filtered_pcd = filtered_pcd.select_by_index(ind)
+    filtered_pcd = filtered_pcd.farthest_point_down_sample(256)
+    _, ind = filtered_pcd.remove_statistical_outlier(nb_neighbors=10, std_ratio=0.25)
+    filtered_pcd = filtered_pcd.select_by_index(ind)
+    filtered_pcd.paint_uniform_color([1, 0, 1])
+
+    # o3d.visualization.draw_geometries([mesh, filtered_pcd], point_show_normal=False)
+
+    return np.asarray(filtered_pcd.points) 
+
+
+def Rt2T(R: np.array, t: np.array):
+    """ 
+    Build a homogeneous transformation matrix (4x4) from a rotation matrix and a translation vector
+    
+    Parameters
+    ----------
+    points : obj : 'np.array'
+        raw point cloud data in numpy array
+    segment_img : obj : `np.array` 
+        boolean mask geneerated SAM
+        
+    Returns
+    -------
+    filtered_pcd : obj : 'np.array'
+        masked and segmented point cloud
+    """
+
+    T = np.eye(4)
+    if R is not None:
+        T[:3,:3] = R
+    if t is not None:
+        T[:3, 3] = t
+
+    return T
