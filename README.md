@@ -16,7 +16,7 @@ Point-based prompting for Segment Anything Model (SAM) that imitates the origina
 
 ## How to Run
 
-> **Note**
+> [!NOTE]
 `main.py` receives several different arguments. Run the `--help` command to see everything it receives.
 
      python3 main.py
